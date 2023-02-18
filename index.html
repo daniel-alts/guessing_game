@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Socket.IO chat</title>
+    <style>
+        body {
+            margin: 0;
+            padding-bottom: 3rem;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #form {
+            background: rgba(0, 0, 0, 0.15);
+            padding: 0.25rem;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            height: 3rem;
+            box-sizing: border-box;
+            backdrop-filter: blur(10px);
+        }
+
+        #question {
+            border: none;
+            padding: 0 1rem;
+            flex-grow: 1;
+            border-radius: 2rem;
+            margin: 0.25rem;
+        }
+
+        #answer {
+            border: none;
+            padding: 0 1rem;
+            flex-grow: .5;
+            border-radius: 2rem;
+            margin: 0.25rem;
+        }
+
+        #input:focus,
+        #name:focus {
+            outline: none;
+        }
+
+        #form>button {
+            background: #333;
+            border: none;
+            padding: 0 1rem;
+            margin: 0.25rem;
+            border-radius: 3px;
+            outline: none;
+            color: #fff;
+        }
+
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        #messages>li {
+            padding: 0.5rem 1rem;
+        }
+
+        #messages>li:nth-child(odd) {
+            background: #efefef;
+        }
+
+        #timer {
+            background: #333;
+            border: none;
+            padding: 0 1rem;
+            margin: 0.25rem;
+            border-radius: 3px;
+            outline: none;
+            color: #fff;
+            text-align: center;
+            line-height: 33px;
+        }
+    </style>
+
+</head>
+
+<body>
+    <ul id="messages"></ul>
+    <form id="form" action="">
+        <!-- <input id="input" autocomplete="off" placeholder="message" /><input id="name" placeholder="name" autocomplete="off" /><button>Send</button> -->
+    </form>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        let socket = null
+
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+        const name = document.getElementById('name');
+
+        const createQnA = (player) => {
+            if (player.isGameMaster) {
+                const question = document.createElement('input');
+                question.id = 'question';
+                question.placeholder = 'Create question';
+                question.name = 'question';
+                question.required = true;
+
+                const answer = document.createElement('input');
+                answer.id = 'answer';
+                answer.placeholder = 'What is the answer?';
+                answer.name = 'answer';
+                answer.required = true;
+
+                form.append(question)
+                form.append(answer)
+
+                const button = document.createElement('button');
+                button.innerText = 'Create question'
+                form.append(button);
+
+                const timer = document.createElement('p');
+                timer.id = 'timer'
+                timer.innerText = '60s'
+                form.append(timer);
+            } else {
+                const answer = document.createElement('input');
+                answer.id = 'answer';
+                answer.placeholder = 'What is the answer?';
+                answer.name = 'answer';
+                answer.required = true;
+
+                form.append(answer)
+
+                const button = document.createElement('button');
+                button.innerText = 'Guess the answer'
+                form.append(button);
+
+                const timer = document.createElement('p');
+                timer.id = 'timer'
+                timer.innerText = '60s'
+                form.append(timer);
+            }
+        }
+
+        const createChat = (event, message) => {
+            console.log('server_says', event)
+            const item = document.createElement('li');
+            item.textContent = message || event.message;
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        window.addEventListener('load', () => {
+            localStorage.clear()
+            const name = prompt('Enter your name: ')
+            socket = io();
+            let player;
+
+            socket.emit('join', { event: 'join', data: { name } })
+
+            socket.on('join_error', function (data) {
+                if (!localStorage.getItem('player')) {
+                    console.log('server_says', data)
+                    window.alert(data.message)
+                    location.reload();
+                }
+            })
+
+            socket.on('new_game_master', function (event) {
+                console.log('server_says', event)
+
+                const alreadyInGame = localStorage.getItem('player');
+
+                if (!alreadyInGame) return;
+                const players = event.data
+
+                const player = players.find(player => player.id === socket.id);
+
+                localStorage.setItem('player', JSON.stringify(player));
+
+                form.innerHTML = ''
+
+                createQnA(player);
+                if (player.isGameMaster) {
+                    createChat(event, 'You are now the game master')
+                } else {
+                    createChat(event)
+                }
+            })
+
+            socket.on('time', function (event) {
+                const timer = document.getElementById('timer')
+                timer.innerHTML = `${event.message}s`;
+            })
+
+            socket.on('general_message', function (event) {
+                createChat(event)
+            })
+
+            socket.on('time_expired', function (event) {
+                createChat(event)
+            })
+
+            socket.on('guess', function (event) {
+                createChat(event)
+            })
+
+            socket.on('question_created', function (event) {
+                createChat(event)
+            })
+
+            socket.on('player_joined', function (event) {
+                console.log('server_says', event)
+                createChat(event)
+
+                player = event.data.player;
+
+                const alreadyInGame = localStorage.getItem('player');
+
+                if (!alreadyInGame) {
+                    localStorage.setItem('player', JSON.stringify(player));
+                }
+
+                if (!alreadyInGame) {
+                    createQnA(player);
+                }
+
+                if (!player.isGameMaster && !alreadyInGame) {
+                    createChat(event, `Welcome to the game "${event.data.player.name}"". Our Game Master "${event.data.gameMaster.name}" is creating a question`)
+                }
+            });
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+
+                const question = document.getElementById('question');
+                const answer = document.getElementById('answer');
+
+                if (question && answer) {
+                    const data = {
+                        eventName: 'create_question',
+                        question: question.value,
+                        answer: answer.value
+                    }
+
+                    console.log('create_question', data);
+                    socket.emit('create_question', data);
+                } else {
+                    const data = {
+                        eventName: 'guess_answer',
+                        answer: answer.value
+                    }
+
+                    console.log('guess_answer', data);
+                    socket.emit('guess_answer', data);
+                }
+
+            });
+
+        })
+    </script>
+</body>
+
+</html>
